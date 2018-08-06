@@ -131,6 +131,10 @@ tdl.models.Model.prototype.drawPrep = function() {
   var buffers = this.buffers;
   var textures = this.textures;
 
+  if (!this.program.linked) {
+      return;
+  }
+
   program.use();
   for (var buffer in buffers) {
     var b = buffers[buffer];
@@ -162,6 +166,11 @@ tdl.models.Model.prototype.drawPrep = function() {
  *     textures to set on this models uniforms.
  */
 tdl.models.Model.prototype.draw = function() {
+
+  if (!this.program.linked) {
+    return;
+  }
+
   var buffers = this.buffers;
   // if no indices buffer then assume drawFunc is drawArrays and thus
   // totalComponents is the number of vertices (not indices).

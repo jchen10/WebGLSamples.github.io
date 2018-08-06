@@ -47,6 +47,8 @@ tdl.require('tdl.webgl');
  */
 tdl.programs = tdl.programs || {};
 
+var extParallelShaderCompile = null;
+
 /**
  * Loads a program from script tags.
  * @param {string} vertexShaderId The id of the script tag that contains the
@@ -65,9 +67,14 @@ tdl.programs.loadProgramFromScriptTags = function(
   if (!fragElem) {
     throw("Can't find fragment program tag: " + fragmentShaderId);
   }
+  var callback = function(msg) {
+    console.log('callback:' + msg);
+  };
   return tdl.programs.loadProgram(
       document.getElementById(vertexShaderId).text,
-      document.getElementById(fragmentShaderId).text);
+      document.getElementById(fragmentShaderId).text,
+      callback
+    );
 };
 
 tdl.programs.makeProgramId = function(vertexShader, fragmentShader) {
@@ -154,6 +161,12 @@ tdl.programs.Program = function(vertexShader, fragmentShader, opt_asyncCallback)
   }
 
   var checkShader = function(shader) {
+    if (extParallelShaderCompile) {
+      var completed = gl.getShaderParameter(shader, extParallelShaderCompile.COMPLETION_STATUS_KHR);
+      if (!completed) {
+        return false;
+      }
+    }
     var compiled = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
     if (!compiled && !gl.isContextLost()) {
       // Something went wrong during compilation; get the error
@@ -162,6 +175,7 @@ tdl.programs.Program = function(vertexShader, fragmentShader, opt_asyncCallback)
       throw("*** Error compiling shader :" + tdl.programs.lastError);
     }
     gl.tdl.programs.shaderDB[shaderId] = shader;
+    return true;
   };
 
   /**
@@ -210,12 +224,19 @@ tdl.programs.Program = function(vertexShader, fragmentShader, opt_asyncCallback)
   };
 
   var checkProgram = function(program) {
+    if (extParallelShaderCompile) {
+      var completed = gl.getProgramParameter(program, extParallelShaderCompile.COMPLETION_STATUS_KHR);
+      if (!completed) {
+        return false;
+      }
+    }
     var linked = gl.getProgramParameter(program, gl.LINK_STATUS);
     if (!linked && !gl.isContextLost()) {
       // something went wrong with the link
       tdl.programs.lastError = gl.getProgramInfoLog (program);
       throw("*** Error in program linking:" + tdl.programs.lastError);
     }
+    return true;
   };
 
   // Compile shaders
@@ -413,7 +434,9 @@ tdl.programs.Program = function(vertexShader, fragmentShader, opt_asyncCallback)
     that.attribLoc = attribLocs;
     that.uniform = uniforms;
   }
-  createSetters(program);
+  if (!this.asyncCallback) {
+    createSetters(program);
+  }
 
   this.loadNewShaders = function(vertexShaderSource, fragmentShaderSource) {
     var program = loadProgram(gl, vertexShaderSource, fragmentShaderSource);
@@ -429,19 +452,32 @@ tdl.programs.Program = function(vertexShader, fragmentShader, opt_asyncCallback)
 
   var checkLater = function() {
     var e;
+    var ok = true;
     try {
-      checkShader(vs);
-      checkShader(fs);
-      checkProgram(program);
+      if (vs) {
+        ok = checkShader(vs)
+        if (ok) vs = null;
+      }
+      if (fs) {
+        ok = checkShader(fs)
+        if (ok) fs = null;
+      }
+      ok = checkProgram(program);
     } catch (e) {
       that.asyncCallback(e.toString());
       return;
     }
-    gl.tdl.programs.programDB[that.programId] = this;
-    that.asyncCallback();
+    if (ok) {
+      createSetters(that.program);
+      gl.tdl.programs.programDB[that.programId] = that;
+      that.linked = true;
+      that.asyncCallback();
+    } else {
+      tdl.webgl.requestAnimationFrame(checkLater);
+    }
   };
   if (this.asyncCallback) {
-    setTimeout(checkLater, 1000);
+    tdl.webgl.requestAnimationFrame(checkLater);
   }
 };
 
@@ -452,6 +488,7 @@ tdl.programs.handleContextLost_ = function() {
   }
 };
 
+
 tdl.programs.init_ = function() {
   if (!gl.tdl.programs) {
     gl.tdl.programs = { };
@@ -461,6 +498,7 @@ tdl.programs.init_ = function() {
     gl.tdl.programs.shaderDB = { };
     gl.tdl.programs.programDB = { };
   }
+  extParallelShaderCompile = gl.getExtension('KHR_parallel_shader_compile');
 };
 
 tdl.programs.Program.prototype.use = function() {

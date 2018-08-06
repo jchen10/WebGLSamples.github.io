@@ -465,8 +465,10 @@ function createProgramFromTags(
   } else {
     fs = fs.replace(/^.*?\/\/ #normalMap\n/gm, "");
   }
-
-  return tdl.programs.loadProgram(getScriptText(vertexTagId), fs);
+  var callback = function(msg) {
+    console.log('callback:' + msg);
+  };
+  return tdl.programs.loadProgram(getScriptText(vertexTagId), fs, callback);
 }
 
 var Scene = function(opt_programIds, fog) {
